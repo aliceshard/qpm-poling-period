@@ -22,6 +22,8 @@ function decimalsFor(step) { return Math.max(0, -Math.floor(Math.log10(step) + 1
 function drawChart(el, opt) {
   // 너비: data-width가 있으면 그 값(인쇄용 고정 크기), 없으면 화면의 실제 너비
   const W = Math.max(300, Math.round(+el.dataset.width || el.clientWidth));
+  // 인쇄용 등 정적 그림(data-static): 마우스 말풍선용 원을 만들지 않고, 점을 조금 작게
+  const isStatic = el.dataset.static === "true";
   const H = Math.round(Math.min(Math.max(W * 0.6, 300), 540));
   const m = { l: 60, r: 18, t: 14, b: 52 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
@@ -66,9 +68,11 @@ function drawChart(el, opt) {
     dot(x, y, { r = 4, fill = "var(--ink)", stroke = "none", tip = null } = {}) {
       if (x < x0 || x > x1 || y < y0 || y > y1) return;
       const cx = sx(x).toFixed(1), cy = sy(y).toFixed(1);
-      over.push(`<circle class="pt" cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`);
-      // 보이는 점 바로 뒤에 투명한 큰 원을 두어 마우스·손가락으로 잡기 쉽게 함
-      if (tip) over.push(`<circle class="pt-hit" cx="${cx}" cy="${cy}" r="${Math.max(r + 5, 10)}" data-tip="${esc(JSON.stringify(tip))}"/>`);
+      const rr = isStatic ? r * 0.7 : r;
+      over.push(`<circle class="pt" cx="${cx}" cy="${cy}" r="${rr}" fill="${fill}" stroke="${stroke}" stroke-width="${isStatic ? 1 : 1.5}"/>`);
+      // 보이는 점 바로 뒤에 투명한 큰 원을 두어 마우스·손가락으로 잡기 쉽게 함 (화면에서만)
+      // fill="transparent"를 직접 지정: CSS가 적용되지 않는 곳에서도 검은 원으로 보이지 않도록
+      if (tip && !isStatic) over.push(`<circle class="pt-hit" cx="${cx}" cy="${cy}" r="${Math.max(r + 5, 10)}" fill="transparent" data-tip="${esc(JSON.stringify(tip))}"/>`);
     },
     label(x, y, text, { color = "var(--ink)", anchor = "start", dx = 0, dy = 0, size = 12, weight = 500, avoid = false } = {}) {
       let X = sx(x) + dx, Y = sy(y) + dy;

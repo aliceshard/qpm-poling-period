@@ -425,7 +425,7 @@ function renderPrintSheet(r) {
     </section>
 
     <figure class="ps-figure">
-      <div id="print-chart" data-width="720"></div>
+      <div id="print-chart" data-width="720" data-static="true"></div>
       <figcaption>
         <span class="ps-fig-title">추천 Λ에서 펌프 파장별 QPM 온도 (작은 점: 0.1 nm 간격, 기울기 약 ${fmt(slope, 2)} °C / 0.1 nm)</span>
         <span class="legend" id="print-legend"></span>
