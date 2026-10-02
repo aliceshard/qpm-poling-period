@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>측정한 레이저에 맞는 poling period 찾기</title>
+<meta name="description" content="PPKTP type-II QPM-SPDC: 레이저 중심 파장에 맞는 poling period와 결정 온도 계산">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🔮%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div>
+    <h1>측정한 레이저에 맞는 poling period 찾기</h1>
+    <p class="sub">
+      PPKTP, type-II collinear degenerate QPM-SPDC (pump y, signal z, idler y).
+      슬라이드 721의 온도 의존 Sellmeier 식으로, 각 레이저의 중심 파장에서 QPM 조건을 맞추는 Λ와 결정 온도를 계산합니다.
+    </p>
+  </div>
+  <button type="button" id="print-btn" class="print-btn">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>
+    </svg>
+    요약 인쇄
+  </button>
+</header>
+
+<section class="hero" aria-live="polite">
+  <div class="readout">
+    <span class="caption" id="hero-caption">추천 poling period</span>
+    <span class="value" id="hero-value">–</span>
+  </div>
+  <div class="verdict">
+    <p id="hero-text"></p>
+    <ul class="chips" id="hero-chips"></ul>
+  </div>
+</section>
+
+<div class="layout">
+  <aside class="panel controls" aria-label="계산 조건">
+    <form id="controls" onsubmit="return false">
+      <fieldset>
+        <legend>레이저 중심 파장</legend>
+        <div id="laser-list"></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button type="button" id="add-laser">레이저 추가</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>후보 Λ 간격</legend>
+        <div class="field">
+          <label for="step">간격 (μm)</label>
+          <input type="number" id="step" min="0.01" max="5" step="0.01" inputmode="decimal">
+        </div>
+        <p class="help" id="step-help">이 값의 배수만 후보로 검토합니다.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>오븐 사용 온도 (°C)</legend>
+        <div class="row2">
+          <div class="field"><label for="tmin">최소</label><input type="number" id="tmin" step="1" inputmode="decimal"></div>
+          <div class="field"><label for="tmax">최대</label><input type="number" id="tmax" step="1" inputmode="decimal"></div>
+        </div>
+        <div class="field" style="margin-top:10px">
+          <label for="ttarget">선호 온도</label>
+          <input type="number" id="ttarget" step="1" inputmode="decimal">
+        </div>
+        <p class="help">범위 안 후보가 여러 개면 선호 온도에 가까운 쪽을 추천합니다.</p>
+      </fieldset>
+
+      <button type="button" id="reset">기본값으로 되돌리기</button>
+    </form>
+  </aside>
+
+  <div class="main-col">
+    <section class="panel" aria-labelledby="chart-title">
+      <h2 id="chart-title" class="visually-hidden" style="position:absolute;left:-9999px">QPM 그래프</h2>
+      <div class="tabs" role="tablist" aria-label="그래프 선택">
+        <button class="tab" role="tab" data-tab="qpm" aria-selected="true">QPM 온도</button>
+        <button class="tab" role="tab" data-tab="all" aria-selected="false">후보 Λ 전체</button>
+        <button class="tab" role="tab" data-tab="period" aria-selected="false">온도별 필요한 Λ</button>
+        <button class="tab" role="tab" data-tab="slide" aria-selected="false">슬라이드 722 검증</button>
+      </div>
+      <p class="chart-desc" id="chart-desc"></p>
+      <!-- '후보 Λ 전체' 탭에서만 보이는 x축 확대/축소 슬라이더 -->
+      <div class="zoom-tools" id="zoom-tools" hidden>
+        <label for="zoom">x축 범위</label>
+        <div class="zoom-slider">
+          <span aria-hidden="true">확대</span>
+          <input type="range" id="zoom" min="0" max="100" step="0.5" aria-describedby="zoom-out">
+          <span aria-hidden="true">축소</span>
+        </div>
+        <output id="zoom-out" for="zoom"></output>
+        <button type="button" id="zoom-reset">기본 보기</button>
+      </div>
+      <div class="chart" id="chart" role="img"></div>
+      <div class="legend" id="chart-legend"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="table-title">
+      <h2 id="table-title">레이저별 결과</h2>
+      <div class="table-wrap">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>레이저</th>
+              <th>펌프 λ<sub>p</sub> (nm)</th>
+              <th>signal = idler (nm)</th>
+              <th>25 °C에서 이상적인 Λ (μm)</th>
+              <th>추천 Λ (μm)</th>
+              <th>QPM 온도 (°C)</th>
+              <th>판정</th>
+              <th>ΔT / 0.1 nm (°C)</th>
+            </tr>
+          </thead>
+          <tbody id="result-body"></tbody>
+        </table>
+      </div>
+      <div class="notes" id="notes"></div>
+    </section>
+
+    <section class="panel">
+      <details class="method">
+        <summary>계산 방법과 가정</summary>
+        <div class="method-body">
+          <p>운동량 보존(QPM) 조건에서 2π를 약분하면 필요한 poling period는 다음과 같습니다. Degenerate 조건이라 λ<sub>s</sub> = λ<sub>i</sub> = 2λ<sub>p</sub> 입니다.</p>
+          <div class="eq">
+            <span class="frac"><span>1</span><span>Λ</span></span> =
+            <span class="frac"><span>n<sub>y</sub>(λ<sub>p</sub>, T)</span><span>λ<sub>p</sub></span></span> −
+            <span class="frac"><span>n<sub>z</sub>(λ<sub>s</sub>, T)</span><span>λ<sub>s</sub></span></span> −
+            <span class="frac"><span>n<sub>y</sub>(λ<sub>i</sub>, T)</span><span>λ<sub>i</sub></span></span>
+          </div>
+          <p>굴절률은 25 °C 값에 온도 항을 더한 형태입니다 (λ는 μm 단위).</p>
+          <div class="eq">n(λ, T) = n(λ, 25 °C) + (T − 25) · <span class="frac"><span>dn</span><span>dT</span></span>(λ)</div>
+          <div class="coef">
+            <div>
+              <h3>n<sub>z</sub> (signal) · Appl. Opt. 26, 2390</h3>
+              n² = A + B/(1 − C/λ²) + D/(1 − E/λ²) − Fλ²<br>
+              A 2.12725, B 1.18431, C 0.0514852<br>D 0.6603, E 100.00507, F 0.00968956<br>
+              dn/dT·10⁶ = 12.415/λ³ − 44.414/λ² + 59.129/λ − 12.101
+            </div>
+            <div>
+              <h3>n<sub>y</sub> (pump, idler) · Appl. Phys. Lett. 84, 1644</h3>
+              n² = A + B/(1 − C/λ²) − Dλ²<br>
+              A 2.09930, B 0.922683<br>C 0.0467695, D 0.0138408<br>
+              dn/dT·10⁶ = 4.269/λ³ − 14.761/λ² + 21.232/λ − 2.113
+            </div>
+          </div>
+          <ul style="margin-top:14px">
+            <li>온도 항(Opt. Lett. 18, 1208)은 dn/dT 식이므로 제곱근 밖에서 더했습니다.</li>
+            <li>n<sub>x</sub>는 이 편광 배치(pump y, signal z, idler y)에서 쓰이지 않아 계산에서 제외했습니다.</li>
+            <li>굴절률이 온도에 선형이므로 QPM 온도는 수치 풀이 없이 직선의 식으로 바로 구합니다.</li>
+            <li>슬라이드 722의 곡선을 그대로 재현하는지 &lsquo;슬라이드 722 검증&rsquo; 탭에서 확인할 수 있습니다.</li>
+          </ul>
+        </div>
+      </details>
+    </section>
+  </div>
+</div>
+</div>
+
+<!-- 인쇄할 때만 보이는 A4 요약 (js/app.js의 renderPrintSheet가 채움) -->
+<div id="print-sheet" aria-hidden="true"></div>
+
+<script src="js/config.js"></script>
+<script src="js/qpm.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
