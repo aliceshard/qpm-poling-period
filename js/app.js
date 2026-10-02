@@ -62,9 +62,30 @@ function compute() {
 }
 
 /* ===================== 그래프 ===================== */
+// 교차점 말풍선 내용: (레이저, Λ)에서 QPM이 맞는 온도
+function crossingTip(laser, period, T) {
+  const s = state.settings;
+  const verdict = T >= s.tMin && T <= s.tMax ? "사용 가능" : T > s.tMax ? "너무 높음" : "너무 낮음";
+  const isRec = Math.abs(period - laser.period) < 1e-9;
+  return {
+    title: laser.name,
+    rows: [
+      ["펌프 λp", `${fmt(laser.wl, 3)} nm`],
+      ["Λ", `${fmtPeriod(period)} μm${isRec ? " (추천)" : ""}`],
+      ["QPM 온도", `${fmt(T, 1)} °C`],
+      [`오븐 ${s.tMin}–${s.tMax} °C`, verdict],
+    ],
+  };
+}
+// 선 위의 점 말풍선 내용: Λ 선 위 한 점의 파장과 온도
+function lineTip(title, wl, T) {
+  return { title, rows: [["펌프 λp", `${fmt(wl, 2)} nm`], ["QPM 온도", `${fmt(T, 1)} °C`]] };
+}
+const HOVER_HINT = "점에 마우스를 올리면(휴대폰은 탭) 값이 표시됩니다.";
+
 const CHARTS = {
   qpm: {
-    desc: r => `추천된 Λ에서 펌프 파장에 따라 QPM이 맞는 결정 온도입니다. 작은 점은 0.1 nm 간격이고, 큰 점이 각 레이저의 동작 온도입니다. 펌프 파장이 0.1 nm 늘면 약 ${fmt(avg(r.results.map(x => x.dTper01)), 2)} °C 높여야 합니다.`,
+    desc: r => `추천된 Λ에서 펌프 파장에 따라 QPM이 맞는 결정 온도입니다. 작은 점은 0.1 nm 간격이고, 큰 점이 각 레이저의 동작 온도입니다. 펌프 파장이 0.1 nm 늘면 약 ${fmt(avg(r.results.map(x => x.dTper01)), 2)} °C 높여야 합니다. ${HOVER_HINT}`,
     draw(el, r) {
       const s = state.settings, res = r.results;
       const wls = res.map(x => x.wl);
@@ -82,13 +103,16 @@ const CHARTS = {
           const grid = linspace(xa, xb, 200);
           for (const p of periods) {
             c.line(grid, grid.map(w => qpmTemperature(w, p)), { color: "var(--pump)", width: 2 });
-            for (let w = Math.ceil(xa * 10) / 10; w <= xb + 1e-9; w += 0.1) c.dot(w, qpmTemperature(w, p), { r: 2.6, fill: "var(--pump)" });
+            for (let w = Math.ceil(xa * 10) / 10; w <= xb + 1e-9; w += 0.1) {
+              const T = qpmTemperature(w, p);
+              c.dot(w, T, { r: 2.6, fill: "var(--pump)", tip: lineTip(`Λ = ${fmtPeriod(p)} μm`, w, T) });
+            }
             // 선 이름: 선 위 62 % 지점의 오른쪽 아래 (점·라벨이 적은 자리)
             const xl = xa + (xb - xa) * 0.62, yl = qpmTemperature(xl, p);
             if (yl > c.y0 && yl < c.y1) c.label(xl, yl, `Λ = ${fmtPeriod(p)} μm`, { dx: 10, dy: 18, color: "var(--pump)", weight: 600 });
           }
           [...res].sort((a, b) => b.T - a.T).forEach(x => {
-            c.dot(x.wl, x.T, { r: 7, fill: x.color, stroke: "var(--surface)", title: `${x.name}: ${fmt(x.wl, 3)} nm, ${fmt(x.T, 1)} °C` });
+            c.dot(x.wl, x.T, { r: 7, fill: x.color, stroke: "var(--surface)", tip: crossingTip(x, x.period, x.T) });
             c.label(x.wl, x.T, `${fmt(x.T, 1)} °C`, { anchor: "end", dx: -11, dy: -9, color: x.color, weight: 700, size: 13, avoid: true });
           });
         },
@@ -102,7 +126,7 @@ const CHARTS = {
   },
 
   all: {
-    desc: () => `간격 ${fmtPeriod(state.settings.step)} μm의 후보 Λ 각각이 담당하는 펌프 파장대입니다. 세로선(레이저)이 사용 온도 범위(초록) 안에서 만나는 선이 쓸 수 있는 Λ입니다.`,
+    desc: () => `간격 ${fmtPeriod(state.settings.step)} μm의 후보 Λ 각각이 담당하는 펌프 파장대입니다. 세로선(레이저)과 후보 Λ 선의 교차점이 그 조합의 QPM 온도이고, 초록 범위 안의 교차점이 쓸 수 있는 조합입니다. ${HOVER_HINT}`,
     draw(el, r) {
       const s = state.settings, res = r.results;
       const [xa, xb] = allTabXRange(r);   // 슬라이더로 조절되는 범위
@@ -146,11 +170,20 @@ const CHARTS = {
             }
           }
           for (const x of res) c.vline(x.wl, { color: x.color, width: 2 });
+
+          // 교차점: 레이저 세로선 × 후보 Λ 선 (추천 조합은 크게)
+          for (const x of res) {
+            for (const p of r.cands) {
+              const T = qpmTemperature(x.wl, p), isRec = Math.abs(p - x.period) < 1e-9;
+              c.dot(x.wl, T, { r: isRec ? 6.5 : 4.5, fill: x.color, stroke: "var(--surface)", tip: crossingTip(x, p, T) });
+            }
+          }
         },
       });
       return [
         { label: "추천된 Λ", color: "var(--pump)" },
         { label: "다른 후보 Λ", color: "var(--neutral-line)" },
+        { label: "교차점 (큰 점: 추천 조합)", color: "var(--muted)", kind: "dot" },
         ...res.map(x => ({ label: `${x.name} (${fmt(x.wl, 3)} nm)`, color: x.color })),
         { label: `사용 온도 ${s.tMin}–${s.tMax} °C`, color: "var(--ok-soft)", kind: "box" },
       ];
@@ -158,7 +191,7 @@ const CHARTS = {
   },
 
   period: {
-    desc: () => "레이저마다 온도를 바꿀 때 필요한 이상적인 Λ(곡선)와 후보 Λ(점선)입니다. 곡선과 점선이 초록 영역 안에서 만나면 그 Λ를 그 온도에서 쓸 수 있습니다.",
+    desc: () => `레이저마다 온도를 바꿀 때 필요한 이상적인 Λ(곡선)와 후보 Λ(점선)입니다. 곡선과 점선의 교차점이 그 Λ를 쓸 때의 동작 온도이고, 초록 영역 안이면 사용할 수 있습니다. ${HOVER_HINT}`,
     draw(el, r) {
       const s = state.settings, res = r.results;
       const xa = Math.min(-20, s.tMin - 20), xb = Math.max(160, s.tMax + 40);
@@ -177,30 +210,62 @@ const CHARTS = {
             if (isRec || visible.length <= 10) c.label(xb, p, `${fmtPeriod(p)} μm`, { anchor: "end", dx: -6, dy: -6, color: isRec ? "var(--pump)" : "var(--muted)", weight: 600 });
           }
           for (const x of res) c.line(Tg, Tg.map(T => idealPeriod(x.wl, T)), { color: x.color, width: 2.5 });
-          for (const x of res) c.dot(x.T, x.period, { r: 6, fill: x.color, stroke: "var(--surface)", title: `${x.name}: ${fmt(x.T, 1)} °C` });
+          // 교차점: 레이저 곡선 × 후보 Λ 점선 (추천 조합은 크게)
+          for (const x of res) {
+            for (const p of visible) {
+              const T = qpmTemperature(x.wl, p), isRec = Math.abs(p - x.period) < 1e-9;
+              c.dot(T, p, { r: isRec ? 6.5 : 4.5, fill: x.color, stroke: "var(--surface)", tip: crossingTip(x, p, T) });
+            }
+          }
         },
       });
       return [
         ...res.map(x => ({ label: x.name, color: x.color })),
         { label: "후보 Λ", color: "var(--neutral-line)" },
+        { label: "교차점 (큰 점: 추천 조합)", color: "var(--muted)", kind: "dot" },
         { label: `사용 온도 ${s.tMin}–${s.tMax} °C`, color: "var(--ok-soft)", kind: "box" },
       ];
     },
   },
 
   slide: {
-    desc: () => `슬라이드 722와 같은 범위·Λ로 그린 그림입니다. Λ = 9.75 μm 선이 403.2 nm에서 ${fmt(qpmTemperature(403.2, 9.75), 1)} °C, 404.0 nm에서 ${fmt(qpmTemperature(404.0, 9.75), 1)} °C를 지나며, 슬라이드 그림과 거의 같습니다.`,
-    draw(el) {
+    desc: r => {
+      const inside = r.results.filter(x => x.wl >= 403 && x.wl <= 404);
+      const outside = r.results.filter(x => x.wl < 403 || x.wl > 404);
+      let text = `슬라이드 722와 같은 범위·Λ로 그린 그림입니다. Λ = 9.75 μm 선이 403.2 nm에서 ${fmt(qpmTemperature(403.2, 9.75), 1)} °C, 404.0 nm에서 ${fmt(qpmTemperature(404.0, 9.75), 1)} °C를 지나며, 슬라이드 그림과 거의 같습니다.`;
+      if (inside.length) text += ` 이 범위에 있는 레이저는 점선으로 표시했고, 빈 원이 각 Λ 선과의 교차점입니다.`;
+      if (outside.length) text += ` (${outside.map(x => x.name).join(", ")}는 403–404 nm 밖이라 표시되지 않습니다.)`;
+      return `${text} ${HOVER_HINT}`;
+    },
+    draw(el, r) {
       const set = [[9.65, "var(--l1)"], [9.70, "var(--l6)"], [9.75, "var(--l4)"], [9.80, "var(--ink)"], [9.85, "var(--l3)"]];
+      const inside = r.results.filter(x => x.wl >= 403 && x.wl <= 404);   // 이 범위 안의 레이저만
       drawChart(el, {
         x: [403.0, 404.0], y: [0, 80], xLabel: "Pump wavelength (nm)", yLabel: "Temperature (°C)",
         draw(c) {
           const grid = linspace(403, 404, 120);
           for (const [p, col] of set) c.line(grid, grid.map(w => qpmTemperature(w, p)), { color: col, width: 2 });
-          for (let w = 403.2; w <= 404.0001; w += 0.1) c.dot(w, qpmTemperature(w, 9.75), { r: 4, fill: "var(--l4)" });
+          for (const x of inside) c.vline(x.wl, { color: x.color, width: 1.6, dash: "5 4" });
+
+          // 슬라이드의 빨간 점 (Λ = 9.75 μm, 0.1 nm 간격)
+          for (let w = 403.2; w <= 404.0001; w += 0.1) {
+            const T = qpmTemperature(w, 9.75);
+            c.dot(w, T, { r: 4, fill: "var(--l4)", tip: lineTip("슬라이드 표시점 (Λ = 9.75 μm)", w, T) });
+          }
+          // 교차점: 레이저 점선 × 슬라이드의 Λ 선
+          for (const x of inside) {
+            for (const [p] of set) {
+              const T = qpmTemperature(x.wl, p);
+              c.dot(x.wl, T, { r: 5.5, fill: "var(--surface)", stroke: x.color, tip: crossingTip(x, p, T) });
+            }
+          }
         },
       });
-      return set.map(([p, col]) => ({ label: `Λ = ${p.toFixed(2)} μm`, color: col }));
+      return [
+        ...set.map(([p, col]) => ({ label: `Λ = ${p.toFixed(2)} μm`, color: col })),
+        ...inside.map(x => ({ label: x.name, color: x.color, kind: "dash" })),
+        ...(inside.length ? [{ label: "교차점", color: "var(--muted)", kind: "ring" }] : []),
+      ];
     },
   },
 };
@@ -317,6 +382,7 @@ function renderChart(r) {
     $("chart-desc").textContent = ""; $("chart-legend").innerHTML = "";
     return;
   }
+  chartTip.hide();   // 다시 그리면 이전 말풍선은 닫음
   $("chart-desc").textContent = CHARTS[tab].desc(r);
   const legend = CHARTS[tab].draw(el, r);
   $("chart-legend").innerHTML = legendHTML(legend || []);
@@ -406,6 +472,7 @@ function renderAll() {
 }
 
 /* ===================== 이벤트 ===================== */
+const chartTip = setupChartTooltip($("chart"), $("chart-tip"));
 $("print-btn").addEventListener("click", () => window.print());
 // Ctrl+P / 브라우저 메뉴로 인쇄해도 최신 값과 인쇄 시각이 들어가도록
 window.addEventListener("beforeprint", () => { if (lastResult) renderPrintSheet(lastResult); });

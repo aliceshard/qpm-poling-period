@@ -132,6 +132,23 @@ button:hover { border-color: var(--pump); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { flex: none; }
 
+/* ---------- 교차점 말풍선 ---------- */
+.chart-wrap { position: relative; }
+.chart .pt { pointer-events: none; }
+.chart .pt.active { stroke: var(--ink); stroke-width: 2.5; }
+.chart .pt-hit { fill: transparent; cursor: pointer; pointer-events: all; }
+.chart text { pointer-events: none; }
+.chart-tip {
+  position: absolute; z-index: 5; pointer-events: none; min-width: 170px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(20, 22, 50, 0.18); padding: 8px 11px; font-size: 0.84rem; line-height: 1.5;
+}
+.chart-tip[hidden] { display: none; }
+.chart-tip strong { display: block; margin-bottom: 3px; }
+.chart-tip dl { display: grid; grid-template-columns: auto auto; gap: 0 14px; margin: 0; }
+.chart-tip dt { color: var(--muted); }
+.chart-tip dd { margin: 0; text-align: right; font-weight: 600; }
+
 /* ---------- x축 확대/축소 슬라이더 ('후보 Λ 전체' 탭) ---------- */
 .zoom-tools {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;

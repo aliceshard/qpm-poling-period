@@ -62,9 +62,13 @@ function drawChart(el, opt) {
     },
     vline(x, opts) { api.line([x, x], [y0, y1], opts); },
     hline(y, opts) { api.line([x0, x1], [y, y], opts); },
-    dot(x, y, { r = 4, fill = "var(--ink)", stroke = "none", title = "" } = {}) {
+    // tip = { title, rows: [[이름, 값], ...] } 을 주면 마우스를 올렸을 때 값이 표시됨
+    dot(x, y, { r = 4, fill = "var(--ink)", stroke = "none", tip = null } = {}) {
       if (x < x0 || x > x1 || y < y0 || y > y1) return;
-      over.push(`<circle cx="${sx(x)}" cy="${sy(y)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="1.5">${title ? `<title>${esc(title)}</title>` : ""}</circle>`);
+      const cx = sx(x).toFixed(1), cy = sy(y).toFixed(1);
+      over.push(`<circle class="pt" cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`);
+      // 보이는 점 바로 뒤에 투명한 큰 원을 두어 마우스·손가락으로 잡기 쉽게 함
+      if (tip) over.push(`<circle class="pt-hit" cx="${cx}" cy="${cy}" r="${Math.max(r + 5, 10)}" data-tip="${esc(JSON.stringify(tip))}"/>`);
     },
     label(x, y, text, { color = "var(--ink)", anchor = "start", dx = 0, dy = 0, size = 12, weight = 500, avoid = false } = {}) {
       let X = sx(x) + dx, Y = sy(y) + dy;
@@ -88,11 +92,60 @@ function drawChart(el, opt) {
   </svg>`;
 }
 
+/* ---------- 점 위에 마우스를 올리면 값을 보여주는 말풍선 ---------- */
+// chartEl: 그래프가 그려지는 요소, tipEl: 말풍선 요소 (둘 다 position: relative인 부모 안에 있음)
+function setupChartTooltip(chartEl, tipEl) {
+  let activePoint = null;
+
+  function show(hit) {
+    const { title, rows } = JSON.parse(hit.dataset.tip);
+    tipEl.innerHTML = `<strong>${esc(title)}</strong><dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+    tipEl.hidden = false;
+
+    if (activePoint) activePoint.classList.remove("active");
+    activePoint = hit.previousElementSibling;   // 보이는 점 강조
+    activePoint.classList.add("active");
+
+    // 말풍선 위치: 점의 오른쪽 위. 칸 밖으로 나가면 반대쪽으로
+    const box = tipEl.parentElement.getBoundingClientRect();
+    const pt = hit.getBoundingClientRect();
+    const px = pt.left + pt.width / 2 - box.left, py = pt.top + pt.height / 2 - box.top;
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight, gap = 12;
+    let left = px + gap, top = py - h - gap;
+    if (left + w > box.width) left = px - w - gap;
+    if (left < 0) left = Math.max(0, Math.min(box.width - w, px - w / 2));
+    if (top < 0) top = py + gap;
+    tipEl.style.left = `${left}px`;
+    tipEl.style.top = `${top}px`;
+  }
+
+  function hide() {
+    tipEl.hidden = true;
+    if (activePoint) activePoint.classList.remove("active");
+    activePoint = null;
+  }
+
+  chartEl.addEventListener("pointerover", e => {
+    const hit = e.target.closest(".pt-hit");
+    if (hit) show(hit);
+  });
+  chartEl.addEventListener("pointerout", e => {
+    if (e.pointerType === "mouse" && e.target.closest(".pt-hit")) hide();
+  });
+  // 터치: 점을 탭하면 표시, 빈 곳을 탭하면 숨김
+  chartEl.addEventListener("pointerdown", e => {
+    const hit = e.target.closest(".pt-hit");
+    if (hit) show(hit); else hide();
+  });
+  return { hide };
+}
+
 // 범례 기호를 SVG로 그림 (배경색과 달리 인쇄할 때도 빠지지 않음)
 const LEGEND_SYMBOL = {
   line: c => `<line x1="1" y1="6" x2="19" y2="6" stroke="${c}" stroke-width="3" stroke-linecap="round"/>`,
   dash: c => `<line x1="1" y1="6" x2="19" y2="6" stroke="${c}" stroke-width="1.6" stroke-dasharray="4 3"/>`,
   dot: c => `<circle cx="10" cy="6" r="5" fill="${c}"/>`,
+  ring: c => `<circle cx="10" cy="6" r="4.2" fill="var(--surface)" stroke="${c}" stroke-width="1.8"/>`,
   box: c => `<rect x="2" y="1" width="16" height="10" rx="2" fill="${c}" stroke="var(--line)"/>`,
 };
 function legendHTML(items) {
