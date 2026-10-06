@@ -19,7 +19,7 @@
     <h1>측정한 레이저에 맞는 poling period 찾기</h1>
     <p class="sub">
       PPKTP, type-II collinear degenerate QPM-SPDC (pump y, signal z, idler y).
-      슬라이드 721의 온도 의존 Sellmeier 식으로, 각 레이저의 중심 파장에서 QPM 조건을 맞추는 Λ와 결정 온도를 계산합니다.
+      온도 의존 Sellmeier 식으로, 각 레이저의 중심 파장에서 QPM 조건을 맞추는 Λ와 결정 온도를 계산합니다.
     </p>
   </div>
   <button type="button" id="print-btn" class="print-btn">
@@ -85,10 +85,10 @@
         <button class="tab" role="tab" data-tab="qpm" aria-selected="true">QPM 온도</button>
         <button class="tab" role="tab" data-tab="all" aria-selected="false">후보 Λ 전체</button>
         <button class="tab" role="tab" data-tab="period" aria-selected="false">온도별 필요한 Λ</button>
-        <button class="tab" role="tab" data-tab="slide" aria-selected="false">슬라이드 722 검증</button>
+        <button class="tab" role="tab" data-tab="example" aria-selected="false">예시</button>
       </div>
-      <p class="chart-desc" id="chart-desc"></p>
-      <!-- '후보 Λ 전체' 탭에서만 보이는 x축 확대/축소 슬라이더 -->
+      <div class="chart-desc" id="chart-desc"></div>
+      <!-- x축 확대/축소 슬라이더 (탭마다 따로 기억) -->
       <div class="zoom-tools" id="zoom-tools" hidden>
         <label for="zoom">x축 범위</label>
         <div class="zoom-slider">
@@ -159,7 +159,7 @@
             <li>온도 항(Opt. Lett. 18, 1208)은 dn/dT 식이므로 제곱근 밖에서 더했습니다.</li>
             <li>n<sub>x</sub>는 이 편광 배치(pump y, signal z, idler y)에서 쓰이지 않아 계산에서 제외했습니다.</li>
             <li>굴절률이 온도에 선형이므로 QPM 온도는 수치 풀이 없이 직선의 식으로 바로 구합니다.</li>
-            <li>슬라이드 722의 곡선을 그대로 재현하는지 &lsquo;슬라이드 722 검증&rsquo; 탭에서 확인할 수 있습니다.</li>
+            <li>&lsquo;예시&rsquo; 탭에서 고정된 Λ(9.65–9.85 μm)와 파장 범위로 그린 QPM 곡선을 볼 수 있습니다.</li>
           </ul>
         </div>
       </details>

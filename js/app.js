@@ -6,16 +6,22 @@
 
 /* ===================== 상태 ===================== */
 function isValidWl(v) { return Number.isFinite(v) && v >= WL_RANGE[0] && v <= WL_RANGE[1]; }
+function defaultZoom() {
+  return Object.fromEntries(Object.entries(ZOOM).map(([tab, z]) => [tab, z.default]));
+}
 function defaultState() {
   return {
     lasers: DEFAULT_LASERS.map(l => ({ ...l })), settings: { ...DEFAULT_SETTINGS }, tab: "qpm",
-    allMargin: ALL_TAB_MARGIN_NM.default,   // '후보 Λ 전체' 탭의 x축 여백 [nm]
+    zoom: defaultZoom(),   // 그래프별 x축 슬라이더 값 (config.js의 ZOOM 참고)
   };
 }
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && Array.isArray(saved.lasers) && saved.settings) return { ...defaultState(), ...saved };
+    if (saved && Array.isArray(saved.lasers) && saved.settings) {
+      const base = defaultState();
+      return { ...base, ...saved, zoom: { ...base.zoom, ...saved.zoom } };
+    }
   } catch (e) { /* 저장값이 없거나 읽을 수 없음 */ }
   return defaultState();
 }
@@ -25,16 +31,21 @@ function saveState() {
 let state = loadState();
 
 
-/* ===================== '후보 Λ 전체' 탭 x축 확대/축소 ===================== */
-// 슬라이더(0–100)와 여백[nm]을 로그 눈금으로 변환: 확대 쪽에서도 세밀하게 조절되도록
-const { min: M_MIN, max: M_MAX } = ALL_TAB_MARGIN_NM;
-const sliderToMargin = v => M_MIN * Math.pow(M_MAX / M_MIN, v / 100);
-const marginToSlider = m => 100 * Math.log(m / M_MIN) / Math.log(M_MAX / M_MIN);
+/* ===================== 그래프 x축 확대/축소 ===================== */
+// 슬라이더(0–100)와 실제 값을 로그 눈금으로 변환: 확대 쪽에서도 세밀하게 조절되도록
+const sliderToZoom = (tab, v) => ZOOM[tab].min * Math.pow(ZOOM[tab].max / ZOOM[tab].min, v / 100);
+const zoomToSlider = (tab, z) => 100 * Math.log(z / ZOOM[tab].min) / Math.log(ZOOM[tab].max / ZOOM[tab].min);
 
-// 보여줄 x 범위: 레이저 파장 범위 양옆에 여백을 붙임
-function allTabXRange(r) {
-  const wls = r.results.map(x => x.wl);
-  return [Math.min(...wls) - state.allMargin, Math.max(...wls) + state.allMargin];
+// 탭별로 보여줄 x 범위
+function xRange(tab, r) {
+  const z = state.zoom[tab];
+  if (tab === "period") {                       // 온도축: 오븐 사용 온도 범위의 가운데 ± 반폭
+    const c = (state.settings.tMin + state.settings.tMax) / 2;
+    return [c - z, c + z];
+  }
+  if (tab === "example") return [EXAMPLE.center - z, EXAMPLE.center + z];   // 예시 중심 ± 반폭
+  const wls = r.results.map(x => x.wl);         // 파장축: 레이저 파장 범위 양옆에 여백
+  return [Math.min(...wls) - z, Math.max(...wls) + z];
 }
 
 /* ===================== 계산 결과 정리 ===================== */
@@ -89,7 +100,7 @@ const CHARTS = {
     draw(el, r) {
       const s = state.settings, res = r.results;
       const wls = res.map(x => x.wl);
-      const xa = Math.floor(Math.min(...wls) * 10) / 10 - 0.2, xb = Math.ceil(Math.max(...wls) * 10) / 10 + 0.2;
+      const [xa, xb] = xRange("qpm", r);   // 슬라이더로 조절되는 범위
       const Ts = res.map(x => x.T);
       const ya = Math.min(0, Math.min(...Ts) - 15), yb = Math.max(s.tMax + 10, Math.max(...Ts) + 20);
       const periods = [...new Set(res.map(x => x.period))].sort((a, b) => a - b);
@@ -129,7 +140,7 @@ const CHARTS = {
     desc: () => `간격 ${fmtPeriod(state.settings.step)} μm의 후보 Λ 각각이 담당하는 펌프 파장대입니다. 세로선(레이저)과 후보 Λ 선의 교차점이 그 조합의 QPM 온도이고, 초록 범위 안의 교차점이 쓸 수 있는 조합입니다. ${HOVER_HINT}`,
     draw(el, r) {
       const s = state.settings, res = r.results;
-      const [xa, xb] = allTabXRange(r);   // 슬라이더로 조절되는 범위
+      const [xa, xb] = xRange("all", r);   // 슬라이더로 조절되는 범위
       const ya = Math.min(0, s.tMin - 10), yb = Math.max(150, s.tMax + 40);
       const recommended = new Set(res.map(x => x.period));
       drawChart(el, {
@@ -194,7 +205,7 @@ const CHARTS = {
     desc: () => `레이저마다 온도를 바꿀 때 필요한 이상적인 Λ(곡선)와 후보 Λ(점선)입니다. 곡선과 점선의 교차점이 그 Λ를 쓸 때의 동작 온도이고, 초록 영역 안이면 사용할 수 있습니다. ${HOVER_HINT}`,
     draw(el, r) {
       const s = state.settings, res = r.results;
-      const xa = Math.min(-20, s.tMin - 20), xb = Math.max(160, s.tMax + 40);
+      const [xa, xb] = xRange("period", r);   // 슬라이더로 조절되는 범위
       const Tg = linspace(xa, xb, 120);
       const all = res.flatMap(x => [idealPeriod(x.wl, xa), idealPeriod(x.wl, xb)]);
       const ya = Math.min(...all) - 0.08, yb = Math.max(...all) + 0.08;
@@ -228,31 +239,44 @@ const CHARTS = {
     },
   },
 
-  slide: {
-    desc: r => {
-      const inside = r.results.filter(x => x.wl >= 403 && x.wl <= 404);
-      const outside = r.results.filter(x => x.wl < 403 || x.wl > 404);
-      let text = `슬라이드 722와 같은 범위·Λ로 그린 그림입니다. Λ = 9.75 μm 선이 403.2 nm에서 ${fmt(qpmTemperature(403.2, 9.75), 1)} °C, 404.0 nm에서 ${fmt(qpmTemperature(404.0, 9.75), 1)} °C를 지나며, 슬라이드 그림과 거의 같습니다.`;
-      if (inside.length) text += ` 이 범위에 있는 레이저는 점선으로 표시했고, 빈 원이 각 Λ 선과의 교차점입니다.`;
-      if (outside.length) text += ` (${outside.map(x => x.name).join(", ")}는 403–404 nm 밖이라 표시되지 않습니다.)`;
-      return `${text} ${HOVER_HINT}`;
+  example: {
+    // 예시 탭은 어떤 변수로 그렸는지 목록으로 설명 (HTML)
+    descHtml: r => {
+      const [xa, xb] = xRange("example", r);
+      const inside = r.results.filter(x => x.wl >= xa && x.wl <= xb);
+      const rows = [
+        ["결정·편광", "PPKTP, type-II collinear: pump y, signal z, idler y"],
+        ["파장 관계", "degenerate, λ<sub>s</sub> = λ<sub>i</sub> = 2λ<sub>p</sub>"],
+        ["펌프 파장 λ<sub>p</sub> (가로축)", `${fmt(xa, 2)} – ${fmt(xb, 2)} nm (기본 보기 ${fmt(EXAMPLE.center - ZOOM.example.default, 1)} – ${fmt(EXAMPLE.center + ZOOM.example.default, 1)} nm, 슬라이더로 조절)`],
+        ["결정 온도 T (세로축)", `${EXAMPLE.T[0]} – ${EXAMPLE.T[1]} °C`],
+        ["Poling period Λ", `${EXAMPLE.periods.map(p => p.toFixed(2)).join(", ")} μm (곡선 ${EXAMPLE.periods.length}개)`],
+        ["표시점", `Λ = ${EXAMPLE.markedPeriod.toFixed(2)} μm 곡선 위 0.1 nm 간격 (예: 403.2 nm → ${fmt(qpmTemperature(403.2, EXAMPLE.markedPeriod), 1)} °C)`],
+        ["굴절률", "온도 의존 Sellmeier 식 (아래 &lsquo;계산 방법과 가정&rsquo; 참고)"],
+        ["레이저", inside.length ? `${inside.map(x => esc(x.name)).join(", ")}: 점선, 각 Λ 곡선과의 교차점은 빈 원` : "가로축 범위 안에 입력한 레이저가 없어 표시하지 않음"],
+      ];
+      return `<p>고정된 조건으로 QPM 곡선을 그린 예시입니다. ${HOVER_HINT}</p>
+        <dl class="vars">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
     },
     draw(el, r) {
-      const set = [[9.65, "var(--l1)"], [9.70, "var(--l6)"], [9.75, "var(--l4)"], [9.80, "var(--ink)"], [9.85, "var(--l3)"]];
-      const inside = r.results.filter(x => x.wl >= 403 && x.wl <= 404);   // 이 범위 안의 레이저만
+      const colors = ["var(--l1)", "var(--l6)", "var(--l4)", "var(--ink)", "var(--l3)"];
+      const set = EXAMPLE.periods.map((p, i) => [p, colors[i % colors.length]]);
+      const [xa, xb] = xRange("example", r);
+      const inside = r.results.filter(x => x.wl >= xa && x.wl <= xb);   // 가로축 범위 안의 레이저만
       drawChart(el, {
-        x: [403.0, 404.0], y: [0, 80], xLabel: "Pump wavelength (nm)", yLabel: "Temperature (°C)",
+        x: [xa, xb], y: EXAMPLE.T, xLabel: "Pump wavelength (nm)", yLabel: "Temperature (°C)",
         draw(c) {
-          const grid = linspace(403, 404, 120);
+          const grid = linspace(xa, xb, 160);
           for (const [p, col] of set) c.line(grid, grid.map(w => qpmTemperature(w, p)), { color: col, width: 2 });
           for (const x of inside) c.vline(x.wl, { color: x.color, width: 1.6, dash: "5 4" });
 
-          // 슬라이드의 빨간 점 (Λ = 9.75 μm, 0.1 nm 간격)
-          for (let w = 403.2; w <= 404.0001; w += 0.1) {
-            const T = qpmTemperature(w, 9.75);
-            c.dot(w, T, { r: 4, fill: "var(--l4)", tip: lineTip("슬라이드 표시점 (Λ = 9.75 μm)", w, T) });
+          // 표시점: markedPeriod 곡선 위 0.1 nm 간격
+          const marked = EXAMPLE.markedPeriod;
+          const markedColor = (set.find(([p]) => p === marked) || [0, "var(--ink)"])[1];
+          for (let k = Math.ceil(xa * 10 - 1e-9); k <= Math.floor(xb * 10 + 1e-9); k++) {
+            const w = k / 10, T = qpmTemperature(w, marked);
+            c.dot(w, T, { r: 4, fill: markedColor, tip: lineTip(`Λ = ${marked.toFixed(2)} μm 표시점`, w, T) });
           }
-          // 교차점: 레이저 점선 × 슬라이드의 Λ 선
+          // 교차점: 레이저 점선 × 각 Λ 곡선
           for (const x of inside) {
             for (const [p] of set) {
               const T = qpmTemperature(x.wl, p);
@@ -313,7 +337,7 @@ function buildNotes(r) {
   const notes = [];
   if (r.results.length) {
     const perPm = avg(r.results.map(x => x.dTper01)) / 100;
-    notes.push(`펌프 파장이 1 pm 바뀌면 QPM 온도는 약 ${fmt(perPm, 3)} °C 움직입니다. 측정된 레이저의 단기 흔들림(0.1 pm 이하)은 영향이 거의 없지만, 다중 모드 레이저(앞선 분석에서 taewon 95 mW)는 모드 간격만큼 다른 온도에서 QPM이 맞습니다.`);
+    notes.push(`펌프 파장이 1 pm 바뀌면 QPM 온도는 약 ${fmt(perPm, 3)} °C 움직입니다. 측정된 레이저의 단기 흔들림(0.1 pm 이하)은 영향이 거의 없지만, 다중 모드 레이저는 모드 간격만큼 다른 온도에서 QPM이 맞습니다.`);
   }
   if (r.results.some(x => x.T > 100)) {
     notes.push("100 °C 이상은 25 °C 근처에서 측정된 온도 계수를 선형으로 연장한 값이라 오차가 커질 수 있습니다. 실제로는 온도를 스캔하며 SPDC 신호가 최대가 되는 지점을 찾으세요.");
@@ -363,27 +387,29 @@ function renderTable(r) {
   $("notes").innerHTML = buildNotes(r).map(n => `<p>${esc(n)}</p>`).join("");
 }
 
-function renderZoomTools(r) {
-  const show = state.tab === "all" && r.results.length > 0;
+function renderZoomTools(r, tab) {
+  const show = tab === "example" || r.results.length > 0;
   $("zoom-tools").hidden = !show;
   if (!show) return;
-  const [xa, xb] = allTabXRange(r);
-  $("zoom").value = marginToSlider(state.allMargin);
-  $("zoom-out").textContent = `${fmt(xa, 2)} – ${fmt(xb, 2)} nm (폭 ${fmt(xb - xa, xb - xa < 2 ? 2 : 1)} nm)`;
+  const [xa, xb] = xRange(tab, r);
+  const unit = ZOOM[tab].unit, d = unit === "°C" ? 0 : 2;
+  $("zoom").value = zoomToSlider(tab, state.zoom[tab]);
+  $("zoom-out").textContent = `${fmt(xa, d)} – ${fmt(xb, d)} ${unit} (폭 ${fmt(xb - xa, unit === "°C" ? 0 : xb - xa < 2 ? 2 : 1)} ${unit})`;
 }
 
 function renderChart(r) {
   const tab = CHARTS[state.tab] ? state.tab : "qpm";
   document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
-  renderZoomTools(r);
+  renderZoomTools(r, tab);
   const el = $("chart");
-  if (!r.results.length && tab !== "slide") {
+  if (!r.results.length && tab !== "example") {
     el.innerHTML = `<p class="chart-desc" style="padding:40px 0">레이저 중심 파장을 입력하면 그래프가 그려집니다.</p>`;
     $("chart-desc").textContent = ""; $("chart-legend").innerHTML = "";
     return;
   }
   chartTip.hide();   // 다시 그리면 이전 말풍선은 닫음
-  $("chart-desc").textContent = CHARTS[tab].desc(r);
+  if (CHARTS[tab].descHtml) $("chart-desc").innerHTML = CHARTS[tab].descHtml(r);
+  else $("chart-desc").textContent = CHARTS[tab].desc(r);
   const legend = CHARTS[tab].draw(el, r);
   $("chart-legend").innerHTML = legendHTML(legend || []);
   el.setAttribute("aria-label", $("chart-desc").textContent);
@@ -515,15 +541,16 @@ bindSetting("tmin", "tMin", v => v < state.settings.tMax);
 bindSetting("tmax", "tMax", v => v > state.settings.tMin);
 bindSetting("ttarget", "tTarget", () => true);
 
-// '후보 Λ 전체' 탭 x축 슬라이더
+// x축 슬라이더: 지금 보고 있는 탭의 범위를 바꿈
+const currentTab = () => (CHARTS[state.tab] ? state.tab : "qpm");
 let zoomFrame = 0;
 $("zoom").addEventListener("input", e => {
-  state.allMargin = sliderToMargin(+e.target.value);
+  state.zoom[currentTab()] = sliderToZoom(currentTab(), +e.target.value);
   cancelAnimationFrame(zoomFrame);
-  zoomFrame = requestAnimationFrame(() => { renderChart(lastResult); saveState(); });
+  zoomFrame = requestAnimationFrame(() => { renderChart(lastResult); renderPrintSheet(lastResult); saveState(); });
 });
 $("zoom-reset").addEventListener("click", () => {
-  state.allMargin = ALL_TAB_MARGIN_NM.default;
+  state.zoom[currentTab()] = ZOOM[currentTab()].default;
   renderChart(lastResult); saveState();
 });
 

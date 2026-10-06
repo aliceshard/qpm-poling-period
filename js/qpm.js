@@ -1,7 +1,7 @@
 "use strict";
 /*
  * qpm.js — 물리 계산
- * 슬라이드 721의 온도 의존 Sellmeier 식과 type-II degenerate QPM 조건 (λ 단위: μm, 펌프 파장 인자: nm).
+ * 온도 의존 Sellmeier 식과 type-II degenerate QPM 조건 (λ 단위: μm, 펌프 파장 인자: nm).
  */
 
 /* ===================== 굴절률 (λ: μm) ===================== */

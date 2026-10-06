@@ -125,6 +125,17 @@ button:hover { border-color: var(--pump); }
 }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--pump); }
 .chart-desc { color: var(--muted); font-size: 0.92rem; max-width: 76ch; }
+.chart-desc p { margin: 0 0 8px; }
+.chart-desc .vars {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0 0 12px;
+  padding: 10px 14px; background: var(--bg); border-radius: var(--radius-s); font-size: 0.88rem;
+}
+.chart-desc .vars dt { color: var(--muted); }
+.chart-desc .vars dd { margin: 0; color: var(--ink); }
+@media (max-width: 640px) {
+  .chart-desc .vars { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .chart-desc .vars dd { margin-bottom: 6px; }
+}
 .chart { width: 100%; min-height: 300px; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart text { font-family: var(--font); }
